@@ -33,7 +33,20 @@
   --font-mono:'Space Mono',monospace;
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none;}
-html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:var(--bg-deep);font-family:var(--font-body);color:var(--bone);}
+html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:var(--bg-deep);font-family:var(--font-body);color:var(--bone);
+  overscroll-behavior:none;-webkit-overscroll-behavior:none;touch-action:manipulation;-webkit-touch-callout:none;}
+body{position:fixed;inset:0;}
+body.mouseLocked,body.mouseLocked #gameCanvas{cursor:none;}
+.screen-scroll{overscroll-behavior:contain;-webkit-overflow-scrolling:touch;}
+/* ---------- Cổng toàn màn hình (điện thoại) + thoát game ---------- */
+#fsGate,#exitConfirm,#byeOverlay{display:none;position:fixed;inset:0;background:rgba(12,10,7,0.97);flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;}
+#fsGate{z-index:20000;} #exitConfirm{z-index:20001;} #byeOverlay{z-index:20002;}
+#fsGate.show,#exitConfirm.show,#byeOverlay.show{display:flex;}
+#fsGate .icon,#byeOverlay .icon{font-size:60px;margin-bottom:14px;}
+#fsGate h2,#exitConfirm h2,#byeOverlay h2{font-family:var(--font-display);font-size:30px;letter-spacing:3px;color:var(--bone);margin:0 0 8px;}
+#fsGate p,#exitConfirm p,#byeOverlay p{font-family:var(--font-mono);font-size:13px;color:var(--dim);margin:0 0 24px;letter-spacing:1px;line-height:1.6;max-width:420px;}
+#exitConfirm .row{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;}
+.pauseHint{font-family:var(--font-mono);font-size:11px;letter-spacing:1px;color:var(--dim);margin-top:18px;text-align:center;line-height:1.7;}
 #gameCanvas{position:absolute;top:0;left:0;width:100%;height:100%;display:block;background:#0e100a;touch-action:none;}
 
 /* ---------- GỢI Ý XOAY NGANG (không bắt buộc) ---------- */
@@ -382,6 +395,28 @@ html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:v
   <button class="skipBtn" id="btnSkipRotate">BỎ QUA</button>
 </div>
 
+<!-- Cổng bắt buộc toàn màn hình (điện thoại) -->
+<div id="fsGate">
+  <div class="icon">⛶</div>
+  <h2>TOÀN MÀN HÌNH</h2>
+  <p>Game cần chạy toàn màn hình để chơi mượt và không bị thoát nhầm trang.</p>
+  <button class="btn primary" id="btnEnterFs" style="width:min(300px,80vw);">VÀO TOÀN MÀN HÌNH</button>
+</div>
+<div id="exitConfirm">
+  <h2>THOÁT GAME?</h2>
+  <p>Tiến trình đã được lưu. Bạn chắc chắn muốn thoát game?</p>
+  <div class="row">
+    <button class="btn" id="btnExitNo" style="min-width:140px;">Ở LẠI</button>
+    <button class="btn primary" id="btnExitYes" style="min-width:140px;">THOÁT</button>
+  </div>
+</div>
+<div id="byeOverlay">
+  <div class="icon">👋</div>
+  <h2>ĐÃ THOÁT GAME</h2>
+  <p>Bạn có thể đóng tab hoặc rời trang. Bấm bên dưới để chơi lại.</p>
+  <button class="btn primary" id="btnBackToGame" style="width:min(300px,80vw);">CHƠI LẠI</button>
+</div>
+
 <canvas id="gameCanvas"></canvas>
 <div id="vignette"></div>
 <div id="scanlines"></div>
@@ -459,6 +494,7 @@ html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:v
     <button class="btn" id="btnRedeemAdmin">🔑 NHẬP MÃ ADMIN</button>
     <button class="btn" id="btnSettings">CÀI ĐẶT</button>
     <button class="btn small" id="btnLogout" style="margin-top:6px;opacity:.75;">ĐĂNG XUẤT</button>
+    <button class="btn small" id="btnExitGame" style="opacity:.75;">THOÁT GAME</button>
   </div>
   <div class="codeHint" style="margin-top:26px;">WASD / JOYSTICK ĐỂ DI CHUYỂN &nbsp;·&nbsp; CHUỘT / NÚT BẮN ĐỂ TẤN CÔNG</div>
 </div>
@@ -632,7 +668,9 @@ html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:v
     <button class="btn primary" id="btnResume">TIẾP TỤC</button>
     <button class="btn" id="btnPauseSettings">CÀI ĐẶT</button>
     <button class="btn" id="btnQuitToMenu">VỀ MENU CHÍNH</button>
+    <button class="btn" id="btnExitGame2" style="border-color:var(--blood-dim);color:var(--blood);">THOÁT GAME</button>
   </div>
+  <div class="pauseHint" id="pauseHint">ESC: TIẾP TỤC &amp; ẨN CHUỘT (DÙNG CHUỘT XOAY GÓC NHÌN)<br>ĐANG TẠM DỪNG: CHUỘT HIỆN ĐỂ BẤM MENU</div>
 </div>
 
 <!-- ========== GAME OVER ========== -->
@@ -681,15 +719,16 @@ let cameraPitch = 0; // góc nhìn dọc: âm nhìn xuống, dương nhìn lên
 let cameraDrag = null;
 canvas.style.touchAction = 'none';
 let lastLookT = 0;
-function applyCameraDelta(dx, dy, touch) {
+function applyCameraDelta(dx, dy, touch, locked) {
   if (cameraYaw === null && RUN && RUN.player) cameraYaw = Math.atan2(RUN.player.facing.y, RUN.player.facing.x);
-  const sens = (touch ? 0.0075 : 0.009) * ((typeof Settings !== 'undefined' ? Settings.mouseSens : 100) / 100);
+  const sens = (locked ? 0.0028 : (touch ? 0.0075 : 0.009)) * ((typeof Settings !== 'undefined' ? Settings.mouseSens : 100) / 100);
   if (cameraYaw !== null) cameraYaw += dx * sens;
   cameraPitch = Math.max(-1.05, Math.min(1.05, cameraPitch - dy * sens));
   lastLookT = performance.now();
 }
 canvas.addEventListener('pointerdown', e => {
   if (e.button !== 0 && e.pointerType === 'mouse') return;
+  if (e.pointerType === 'mouse' && document.pointerLockElement) return; // đang khóa chuột: dùng movementX/Y
   cameraDrag = { id: e.pointerId, x: e.clientX, y: e.clientY };
   try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
 });
@@ -1096,6 +1135,7 @@ doSave(); // lưu ID ngay
    UI HELPERS
 --------------------------------------------------------------------- */
 function showScreen(id){
+  if(id) releaseMouse(); // có menu/overlay → trả chuột lại cho người dùng
   document.querySelectorAll('.screen').forEach(s=>s.classList.remove('show'));
   if(id) document.getElementById(id).classList.add('show');
 }
@@ -2302,6 +2342,7 @@ function startNewRun(){
   buildMinimapBase();
   running=true; paused=false;
   showScreen(null);
+  enterPlayMode();
   document.getElementById('bossBarWrap').classList.remove('show');
   buildSkillBar();
   updateHUD();
@@ -2317,7 +2358,7 @@ const keys={};
 window.addEventListener('keydown',e=>{
   keys[e.key.toLowerCase()]=true;
   if(!running) return;
-  if(e.key==='Escape'){ togglePause(); }
+  if(e.key==='Escape'){ handleEscape(e); }
   if(e.key==='1') useSkill('dash');
   if(e.key==='2') useSkill('heal');
   if(e.key==='3') useSkill('rage');
@@ -2328,9 +2369,17 @@ window.addEventListener('keydown',e=>{
 window.addEventListener('keyup',e=>{ keys[e.key.toLowerCase()]=false; });
 
 let mouse={x:0,y:0,down:false};
-canvas.addEventListener('mousemove',e=>{ mouse.x=e.clientX; mouse.y=e.clientY; });
-canvas.addEventListener('mousedown',()=>{ mouse.down=true; });
-window.addEventListener('mouseup',()=>{ mouse.down=false; });
+canvas.addEventListener('mousemove',e=>{
+  mouse.x=e.clientX; mouse.y=e.clientY;
+  if(document.pointerLockElement===canvas && running && !paused){
+    let mx=e.movementX||0, my=e.movementY||0;
+    if(Math.abs(mx)>400||Math.abs(my)>400) return; // bỏ qua cú nhảy bất thường của trình duyệt
+    applyCameraDelta(mx,my,false,true);
+  }
+});
+canvas.addEventListener('mousedown',e=>{ if(e.button===0 && running && !paused) mouse.down=true; });
+window.addEventListener('mouseup',e=>{ if(e.button===0) mouse.down=false; });
+canvas.addEventListener('contextmenu',e=>e.preventDefault());
 
 /* joystick */
 let joy={active:false,dx:0,dy:0,id:null};
@@ -2397,7 +2446,178 @@ function togglePause(){
   if(!running) return;
   paused=!paused;
   showScreen(paused?'pauseScreen':null);
+  if(paused){ mouse.down=false; releaseMouse(); }
+  else { resumeInput(); }
 }
+
+/* =====================================================================
+   CHUỘT (MÁY TÍNH) — khóa chuột khi chơi, ESC để hiện chuột / ESC lại để ẩn
+   TOÀN MÀN HÌNH + CHỐNG THOÁT TRANG (ĐIỆN THOẠI)
+===================================================================== */
+const docEl=document.documentElement;
+const fsSupported=!!(docEl.requestFullscreen||docEl.webkitRequestFullscreen);
+const isStandalone=(window.matchMedia&&matchMedia('(display-mode: standalone)').matches)||window.navigator.standalone===true;
+function isFullscreen(){ return !!(document.fullscreenElement||document.webkitFullscreenElement); }
+let lastUnlockT=0, allowExit=false, fsFailed=false, wakeLock=null;
+
+function enterFullscreen(){
+  if(!fsSupported||isFullscreen()) return Promise.resolve();
+  try{
+    const p=docEl.requestFullscreen?docEl.requestFullscreen({navigationUI:'hide'}):docEl.webkitRequestFullscreen();
+    return Promise.resolve(p);
+  }catch(err){ return Promise.reject(err); }
+}
+function exitFullscreen(){
+  try{ if(document.exitFullscreen&&document.fullscreenElement) document.exitFullscreen().catch(()=>{}); else if(document.webkitExitFullscreen&&document.webkitFullscreenElement) document.webkitExitFullscreen(); }catch(_){}
+}
+async function keepAwake(){
+  try{ if('wakeLock' in navigator && !wakeLock && !document.hidden){ wakeLock=await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release',()=>{wakeLock=null;}); } }catch(_){}
+}
+
+/* ---- Khóa chuột (máy tính) ---- */
+function mouseLocked(){ return document.pointerLockElement===canvas; }
+function anyScreenOpen(){ return !!document.querySelector('.screen.show'); }
+function requestMouseLock(){
+  if(isTouch||!running||paused||mouseLocked()||anyScreenOpen()) return;
+  try{
+    const p=canvas.requestPointerLock({unadjustedMovement:true}); // chuột thô, không bị tăng tốc của hệ điều hành
+    if(p&&p.catch) p.catch(()=>{ try{ const q=canvas.requestPointerLock(); if(q&&q.catch) q.catch(()=>{}); }catch(_){} });
+  }catch(_){ try{ canvas.requestPointerLock(); }catch(__){} }
+}
+function releaseMouse(){
+  try{ if(document.pointerLockElement) document.exitPointerLock(); }catch(_){}
+  document.body.classList.remove('mouseLocked');
+}
+function enterPlayMode(){
+  mouse.down=false;
+  if(isTouch){ enterFullscreen().catch(()=>{}); keepAwake(); return; }
+  enterFullscreen().catch(()=>{});
+  requestMouseLock();
+}
+function resumeInput(){
+  if(isTouch){ enterFullscreen().catch(()=>{}); return; }
+  enterFullscreen().catch(()=>{}); // có thể bị trình duyệt từ chối nếu không có thao tác bấm — không sao
+  requestMouseLock();
+  setTimeout(()=>{ if(!isTouch&&running&&!paused&&!mouseLocked()) toast('Bấm chuột để ẩn chuột & xoay góc nhìn'); },400);
+}
+document.addEventListener('pointerlockchange',()=>{
+  const locked=mouseLocked();
+  document.body.classList.toggle('mouseLocked',locked);
+  if(!locked){
+    lastUnlockT=performance.now(); mouse.down=false;
+    // Người chơi bấm ESC (trình duyệt tự nhả chuột) → tạm dừng & hiện chuột
+    if(running&&!paused&&!isTouch&&!anyScreenOpen()){
+      paused=true; showScreen('pauseScreen');
+    }
+  }
+});
+document.addEventListener('pointerlockerror',()=>{ /* sẽ thử lại ở lần bấm chuột/phím kế tiếp */ });
+function handleEscape(e){
+  // Trình duyệt có thể gửi cả sự kiện ESC lẫn việc nhả chuột — tránh bật/tắt đôi
+  if(performance.now()-lastUnlockT<350) return;
+  togglePause();
+}
+// Nếu trình duyệt từ chối khóa chuột lúc nhấn ESC (cần thao tác bấm), lần bấm chuột / phím tiếp theo sẽ khóa lại
+['pointerdown','mousedown','keydown'].forEach(ev=>window.addEventListener(ev,e=>{
+  if(ev==='keydown'&&e.key==='Escape') return;
+  if(!isTouch&&running&&!paused&&!mouseLocked()&&!anyScreenOpen()){ requestMouseLock(); enterFullscreen().catch(()=>{}); }
+},true));
+document.addEventListener('fullscreenchange',()=>{
+  if(!isFullscreen()) lastUnlockT=performance.now();
+  updateFsGate();
+  if(isTouch&&!isFullscreen()&&fsSupported&&!fsFailed&&!allowExit&&running&&!paused){ paused=true; showScreen('pauseScreen'); }
+});
+document.addEventListener('webkitfullscreenchange',()=>document.dispatchEvent(new Event('fullscreenchange')));
+window.addEventListener('blur',()=>{
+  mouse.down=false; for(const k in keys) keys[k]=false;
+  if(running&&!paused){ paused=true; showScreen('pauseScreen'); }
+});
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden){ mouse.down=false; if(running&&!paused){ paused=true; showScreen('pauseScreen'); } }
+  else if(isTouch){ keepAwake(); }
+});
+
+/* ---- Cổng toàn màn hình bắt buộc (điện thoại) ---- */
+const fsGateEl=document.getElementById('fsGate');
+function updateFsGate(){
+  const need=isTouch&&fsSupported&&!isStandalone&&!fsFailed&&!allowExit&&!isFullscreen();
+  fsGateEl.classList.toggle('show',need);
+}
+document.getElementById('btnEnterFs').addEventListener('click',()=>{
+  enterFullscreen().then(()=>{ keepAwake(); updateFsGate(); }).catch(()=>{ fsFailed=true; updateFsGate(); toast('Trình duyệt không cho phép toàn màn hình'); });
+});
+updateFsGate();
+
+/* ---- Chống kéo xuống tải lại / cuộn / zoom (điện thoại) ---- */
+if(isTouch){
+  let tsY=0;
+  document.addEventListener('touchstart',e=>{ tsY=e.touches[0].clientY; keepAwake(); },{passive:true});
+  document.addEventListener('touchmove',e=>{
+    if(allowExit) return;
+    if(e.touches.length>1){ e.preventDefault(); return; }
+    const dy=e.touches[0].clientY-tsY;
+    let el=e.target;
+    while(el&&el!==document.body&&el!==document.documentElement){
+      if(el.scrollHeight>el.clientHeight+1){
+        const oy=getComputedStyle(el).overflowY;
+        if(oy==='auto'||oy==='scroll'){
+          const atTop=el.scrollTop<=0, atBottom=el.scrollTop+el.clientHeight>=el.scrollHeight-1;
+          if((dy>0&&atTop)||(dy<0&&atBottom)) e.preventDefault(); // chặn cuộn vượt biên → không kéo tải lại trang
+          return; // cho phép cuộn bình thường bên trong menu
+        }
+      }
+      el=el.parentElement;
+    }
+    e.preventDefault();
+  },{passive:false});
+  ['gesturestart','gesturechange','gestureend'].forEach(ev=>document.addEventListener(ev,e=>e.preventDefault()));
+  document.addEventListener('contextmenu',e=>{ if(e.target.tagName!=='INPUT'&&e.target.tagName!=='TEXTAREA') e.preventDefault(); });
+  // iPhone không hỗ trợ toàn màn hình trong Safari → gợi ý thêm vào Màn hình chính
+  if(!fsSupported&&!isStandalone&&!sessionStorage.getItem('zs_iosTip')){
+    try{ sessionStorage.setItem('zs_iosTip','1'); }catch(_){}
+    setTimeout(()=>toast('iPhone: bấm Chia sẻ → Thêm vào MH chính để chơi toàn màn hình'),1500);
+  }
+}
+
+/* ---- Chặn nút Back / tải lại / đóng trang: chỉ thoát bằng nút THOÁT GAME ---- */
+if(isTouch){
+  try{ history.pushState({zs:1},'',location.href); history.pushState({zs:2},'',location.href); }catch(_){}
+  window.addEventListener('popstate',()=>{
+    if(allowExit) return;
+    try{ history.pushState({zs:2},'',location.href); }catch(_){}
+    if(running&&!paused){ paused=true; showScreen('pauseScreen'); }
+    toast('Dùng nút THOÁT GAME để thoát');
+  });
+}
+window.addEventListener('beforeunload',e=>{
+  if(isTouch&&!allowExit){ e.preventDefault(); e.returnValue=''; return ''; }
+});
+
+/* ---- THOÁT GAME ---- */
+const exitConfirmEl=document.getElementById('exitConfirm');
+const byeEl=document.getElementById('byeOverlay');
+function askExit(){ exitConfirmEl.classList.add('show'); }
+document.getElementById('btnExitGame').addEventListener('click',askExit);
+document.getElementById('btnExitGame2').addEventListener('click',askExit);
+document.getElementById('btnExitNo').addEventListener('click',()=>exitConfirmEl.classList.remove('show'));
+document.getElementById('btnExitYes').addEventListener('click',()=>{
+  exitConfirmEl.classList.remove('show');
+  try{ doSave(); }catch(_){}
+  allowExit=true; running=false; paused=false; mouse.down=false;
+  releaseMouse(); exitFullscreen();
+  try{ if(wakeLock) wakeLock.release(); }catch(_){}
+  fsGateEl.classList.remove('show');
+  byeEl.classList.add('show');
+  try{ window.close(); }catch(_){}
+});
+document.getElementById('btnBackToGame').addEventListener('click',()=>{
+  allowExit=false; byeEl.classList.remove('show');
+  showScreen('mainMenu');
+  if(isTouch){
+    try{ history.pushState({zs:2},'',location.href); }catch(_){}
+    enterFullscreen().catch(()=>{ fsFailed=true; }).then(updateFsGate);
+  }
+});
 
 /* ---------------------------------------------------------------------
    SKILL BAR (mobile buttons)
@@ -3529,3 +3749,4 @@ window.addEventListener('beforeunload',()=>{ doSave(); });
 </script>
 </body>
 </html>
+
